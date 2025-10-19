@@ -9,9 +9,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      # ⚠️ 把这里改成你的 Android 工程所在子目录名
-      #   你的仓库里看起来是 FaceLocalDetect/FaceLocalDetect 或 FaceLocalDetect
-      PROJECT_DIR: FaceLocalDetect
+      PROJECT_DIR: 。   # ← 如果工程在子目录，请改成子目录名
 
     steps:
       - name: Checkout
@@ -26,16 +24,27 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      # 用指定版本 Gradle（不依赖仓库里的 gradle-wrapper.jar）
-      - name: Build with Gradle 8.2.1 (no wrapper)
+      # 第一步：用官方 Gradle 动作先在云端生成“正确的” wrapper（8.2.1）
+      - name: Generate Gradle wrapper (8.2.1)
         uses: gradle/gradle-build-action@v2
         with:
           gradle-version: 8.2.1
           build-root-directory: ${{ env.PROJECT_DIR }}
-          arguments: assembleDebug
+          arguments: wrapper
 
+      # 第二步：给 wrapper 脚本加执行权限
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+        working-directory: ${{ env.PROJECT_DIR }}
+
+      # 第三步：真正用 wrapper 构建 APK
+      - name: Build Debug APK with Wrapper
+        run: ./gradlew assembleDebug --stacktrace
+        working-directory: ${{ env.PROJECT_DIR }}
+
+      # 第四步：上传 APK 产物
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: FaceLocalDetect-debug-apk
+          name: app-debug-apk
           path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
