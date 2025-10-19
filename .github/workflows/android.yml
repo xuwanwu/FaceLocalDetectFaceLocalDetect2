@@ -19,11 +19,11 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      # 💡 删除旧 wrapper 并重新生成
-      - name: Regenerate Gradle wrapper (8.2.1)
+      # 删除旧 wrapper 并用 8.7 重新生成
+      - name: Regenerate Gradle wrapper (8.7)
         run: |
           rm -rf gradle gradlew gradlew.bat
-          gradle wrapper --gradle-version 8.2.1
+          gradle wrapper --gradle-version 8.7
 
       - name: Grant execute permission for new wrapper
         run: chmod +x gradlew
