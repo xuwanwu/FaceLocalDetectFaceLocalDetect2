@@ -1,5 +1,6 @@
 package com.example.facelocaldetect
 
+import com.google.mlkit.vision.face.FaceLandmark
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
@@ -220,11 +221,11 @@ class MainActivity : ComponentActivity() {
             return nx to ny
         }
 
-        val lEye = face.getLandmark(Face.Landmark.LEFT_EYE)?.position ?: return null
-        val rEye = face.getLandmark(Face.Landmark.RIGHT_EYE)?.position ?: return null
-        val nose = face.getLandmark(Face.Landmark.NOSE_BASE)?.position ?: return null
-        val lMouth = face.getLandmark(Face.Landmark.MOUTH_LEFT)?.position ?: return null
-        val rMouth = face.getLandmark(Face.Landmark.MOUTH_RIGHT)?.position ?: return null
+        val lEye = face.getLandmark(FaceLandmark.LEFT_EYE)?.position ?: return null
+        val rEye = face.getLandmark(FaceLandmark.RIGHT_EYE)?.position ?: return null
+        val nose = face.getLandmark(FaceLandmark.NOSE_BASE)?.position ?: return null
+        val lMouth = face.getLandmark(FaceLandmark.MOUTH_LEFT)?.position ?: return null
+        val rMouth = face.getLandmark(FaceLandmark.MOUTH_RIGHT)?.position ?: return null
 
         val (lex, ley) = norm(lEye.x, lEye.y)
         val (rex, rey) = norm(rEye.x, rEye.y)
