@@ -1,4 +1,4 @@
-name: Android CI (Rebuild Wrapper + Build APK)
+name: Android CI (Build APK)
 
 on:
   push:
@@ -19,17 +19,32 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      # 删除旧 wrapper 并用 8.7 重新生成
+      # 安装 Android SDK 基础环境
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      # 接受协议 + 安装常用平台与构建工具（按你项目一般配置）
+      - name: Install Android SDK components
+        run: |
+          yes | sdkmanager --licenses
+          sdkmanager "platform-tools" \
+                     "platforms;android-34" \
+                     "platforms;android-35" \
+                     "build-tools;34.0.0" \
+                     "cmdline-tools;latest"
+
+      # 用 8.7 重新生成干净的 wrapper（避免本地上传的权限/完整性问题）
       - name: Regenerate Gradle wrapper (8.7)
         run: |
           rm -rf gradle gradlew gradlew.bat
           gradle wrapper --gradle-version 8.7
 
-      - name: Grant execute permission for new wrapper
+      - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Build with Gradle
-        run: ./gradlew assembleDebug --stacktrace
+      # 关键：更多日志，跳过 lint/test，避免无关失败
+      - name: Build Debug APK
+        run: ./gradlew clean assembleDebug --stacktrace --info --warning-mode all -x lint -x test
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
