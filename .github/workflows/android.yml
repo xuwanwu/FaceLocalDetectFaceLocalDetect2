@@ -19,8 +19,11 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
+      - name: Fix Gradle wrapper permissions
+        run: |
+          chmod +x gradlew
+          chmod 644 gradle/wrapper/gradle-wrapper.jar
+          chmod 644 gradle/wrapper/gradle-wrapper.properties
 
       - name: Build with Gradle
         run: ./gradlew assembleDebug --stacktrace
