@@ -20,44 +20,58 @@ import com.example.facelocaldetect.databinding.ActivityMainBinding
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.Face
 import com.google.mlkit.vision.face.FaceDetection
+import com.google.mlkit.vision.face.FaceDetector
 import com.google.mlkit.vision.face.FaceDetectorOptions
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.math.max
-import kotlin.math.min
+import kotlin.math.sqrt
 
 class MainActivity : ComponentActivity() {
 
     private lateinit var binding: ActivityMainBinding
-    private val executor = Executors.newSingleThreadExecutor()
+    private lateinit var executor: ExecutorService
 
     private val requestPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) startCamera()
+        else Toast.makeText(this, "需要相机权限", Toast.LENGTH_SHORT).show()
     }
 
     private val db by lazy { LocalDB(this) }
     private var persons: MutableList<Person> = mutableListOf()
 
-    // Register sampling
+    // 注册采样
     private var isRegistering = false
     private var registerName: String = ""
     private val tempSamples = mutableListOf<FloatArray>()
+
+    // ML Kit 人脸检测器
+    private val detector: FaceDetector by lazy {
+        val options = FaceDetectorOptions.Builder()
+            .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
+            .enableTracking()
+            .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
+            .build()
+        FaceDetection.getClient(options)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        executor = Executors.newSingleThreadExecutor()
         persons = db.loadAll().toMutableList()
 
+        // 注册按钮
         findViewById<Button>(R.id.btnRegister).setOnClickListener {
             if (isRegistering) {
                 Toast.makeText(this, "正在采集，请稍等…", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
-            val input = EditText(this)
-            input.hint = "输入姓名"
+            val input = EditText(this).apply { hint = "输入姓名" }
             AlertDialog.Builder(this)
                 .setTitle("注册人脸")
                 .setView(input)
@@ -76,18 +90,27 @@ class MainActivity : ComponentActivity() {
                 .show()
         }
 
+        // 清空库
         findViewById<Button>(R.id.btnClear).setOnClickListener {
             persons.clear()
             db.clear()
             Toast.makeText(this, "已清空向量库", Toast.LENGTH_SHORT).show()
         }
 
+        // 权限
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
-            == PackageManager.PERMISSION_GRANTED) {
+            == PackageManager.PERMISSION_GRANTED
+        ) {
             startCamera()
         } else {
             requestPermission.launch(Manifest.permission.CAMERA)
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        executor.shutdown()
+        detector.close()
     }
 
     private fun startCamera() {
@@ -106,15 +129,8 @@ class MainActivity : ComponentActivity() {
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
 
-            val options = FaceDetectorOptions.Builder()
-                .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
-                .enableTracking()
-                .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
-                .build()
-            val detector = FaceDetection.getClient(options)
-
             analysis.setAnalyzer(executor) { imageProxy: ImageProxy ->
-                processFrame(imageProxy, detector)
+                processFrame(imageProxy)
             }
 
             cameraProvider.unbindAll()
@@ -122,20 +138,23 @@ class MainActivity : ComponentActivity() {
         }, ContextCompat.getMainExecutor(this))
     }
 
-    private fun processFrame(imageProxy: ImageProxy, detector: com.google.mlkit.vision.face.FaceDetector) {
+    private fun processFrame(imageProxy: ImageProxy) {
         val mediaImage = imageProxy.image ?: run { imageProxy.close(); return }
         val rotation = imageProxy.imageInfo.rotationDegrees
         val input = InputImage.fromMediaImage(mediaImage, rotation)
 
         detector.process(input)
             .addOnSuccessListener { faces: List<Face> ->
+                // 数据喂给 Overlay：传入检测到的人脸与原始帧尺寸
+                val srcW = mediaImage.width
+                val srcH = mediaImage.height
+
                 val infos = faces.map { face ->
-                    val emb = landmarkEmbedding(face, input.width, input.height)
+                    val emb = landmarkEmbedding(face)  // 16 维简单向量
                     var label: String? = null
 
                     if (emb != null) {
                         if (isRegistering) {
-                            // collect up to 5 samples
                             if (tempSamples.size < 5) {
                                 tempSamples.add(emb)
                                 if (tempSamples.size == 5) {
@@ -146,11 +165,10 @@ class MainActivity : ComponentActivity() {
                             }
                             label = "采集中: ${tempSamples.size}/5"
                         } else {
-                            // recognize: cosine to all persons' samples
+                            // 识别（与本地库余弦相似度最高者）
                             var best = -1f
                             var bestName: String? = null
                             for (p in persons) {
-                                // average of top scores among samples
                                 var top = -1f
                                 for (vec in p.vectors) {
                                     val s = MathUtil.cosine(emb, vec)
@@ -161,32 +179,34 @@ class MainActivity : ComponentActivity() {
                                     bestName = p.name
                                 }
                             }
-                            if (best > 0.93f) { // threshold tuned for this simple embedding
-                                label = "$bestName (%.2f)".format(best)
+                            label = if (best > 0.93f) {
+                                "$bestName (%.2f)".format(best)
                             } else {
-                                label = "未知 (%.2f)".format(best)
+                                "未知 (%.2f)".format(best)
                             }
                         }
-                    } else {
-                        if (isRegistering) {
-                            label = "请正对镜头"
-                        }
+                    } else if (isRegistering) {
+                        label = "请正对镜头"
                     }
+
                     DrawInfo(face, label)
                 }
-                binding.overlay.update(infos, input.width, input.height)
+
+                binding.overlay.update(infos, srcW, srcH)
             }
             .addOnFailureListener {
-                // ignore
+                // 可记录日志
             }
             .addOnCompleteListener {
                 imageProxy.close()
             }
     }
 
-    // Build a small, normalized embedding from landmarks (eyes/nose/mouth/ears),
-    // using relative positions and distances inside the face bounding box.
-    private fun landmarkEmbedding(face: Face, w: Int, h: Int): FloatArray? {
+    /**
+     * 由关键点构造一个简易的 16 维特征并做 L2 归一化（演示用；精度有限）。
+     * 需要高精度请换为 TFLite/ONNX 的人脸向量模型。
+     */
+    private fun landmarkEmbedding(face: Face): FloatArray? {
         val box = face.boundingBox
         val fx = box.left.toFloat()
         val fy = box.top.toFloat()
@@ -212,10 +232,9 @@ class MainActivity : ComponentActivity() {
         val (lmx, lmy) = norm(lMouth.x, lMouth.y)
         val (rmx, rmy) = norm(rMouth.x, rMouth.y)
 
-        // features: raw coords + pairwise distances (eyes, eye-nose, mouth width/height, etc.)
         fun dist(ax: Float, ay: Float, bx: Float, by: Float): Float {
             val dx = ax - bx; val dy = ay - by
-            return kotlin.math.sqrt(dx*dx + dy*dy)
+            return sqrt(dx * dx + dy * dy)
         }
 
         val eyeDist = dist(lex, ley, rex, rey)
@@ -229,12 +248,13 @@ class MainActivity : ComponentActivity() {
             lex, ley, rex, rey, nx, ny, lmx, lmy, rmx, rmy,
             eyeDist, eyeNoseL, eyeNoseR, mouthW, noseMouthL, noseMouthR
         )
-        // L2 normalize
+
+        // L2 归一化
         var norm2 = 0f
-        for (v in raw) norm2 += v*v
-        val s = kotlin.math.sqrt(norm2)
+        for (v 在 raw) norm2 += v * v
+        val s = sqrt(norm2)
         if (s > 0f) {
-            for (i in raw.indices) raw[i] = raw[i] / s
+            for (i 在 raw.indices) raw[i] = raw[i] / s
         }
         return raw
     }
