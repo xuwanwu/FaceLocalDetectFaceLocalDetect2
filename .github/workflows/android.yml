@@ -1,4 +1,4 @@
-name: Android CI (Build APK)
+name: Android CI (Rebuild Wrapper + Build APK)
 
 on:
   push:
@@ -19,11 +19,14 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Fix Gradle wrapper permissions
+      # 💡 删除旧 wrapper 并重新生成
+      - name: Regenerate Gradle wrapper (8.2.1)
         run: |
-          chmod +x gradlew
-          chmod 644 gradle/wrapper/gradle-wrapper.jar
-          chmod 644 gradle/wrapper/gradle-wrapper.properties
+          rm -rf gradle gradlew gradlew.bat
+          gradle wrapper --gradle-version 8.2.1
+
+      - name: Grant execute permission for new wrapper
+        run: chmod +x gradlew
 
       - name: Build with Gradle
         run: ./gradlew assembleDebug --stacktrace
