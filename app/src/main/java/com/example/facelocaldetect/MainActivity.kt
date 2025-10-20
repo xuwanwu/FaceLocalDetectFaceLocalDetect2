@@ -252,10 +252,10 @@ class MainActivity : ComponentActivity() {
 
         // L2 归一化
         var norm2 = 0f
-        for (v 在 raw) norm2 += v * v
+        for (v in raw) norm2 += v * v
         val s = sqrt(norm2)
         if (s > 0f) {
-            for (i 在 raw.indices) raw[i] = raw[i] / s
+            for (i in raw.indices) raw[i] = raw[i] / s
         }
         return raw
     }
